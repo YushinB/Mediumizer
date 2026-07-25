@@ -215,6 +215,110 @@ async function startServer() {
     }
   });
 
+  // API Route: Inline AI Refinement
+  app.post("/api/refine-article", async (req, res) => {
+    const { content, action, customInstruction, targetTone, fullArticle } = req.body || {};
+
+    if (!content) {
+      res.status(400).json({ error: "Content is required for refinement" });
+      return;
+    }
+
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+
+    try {
+      const ai = getGenAIClient();
+      let actionInstruction = "";
+
+      switch (action) {
+        case "punchy":
+          actionInstruction = "Make the text more engaging, punchy, bold, and captivating for Medium readers, while preserving core facts.";
+          break;
+        case "expand":
+          actionInstruction = "Expand the text with richer explanations, concrete real-world examples, insightful statistics or analogies, and deeper analysis.";
+          break;
+        case "shorten":
+          actionInstruction = "Condense and simplify the text to be concise, removing fluff while preserving essential insights.";
+          break;
+        case "grammar":
+          actionInstruction = "Fix all grammar, spelling, punctuation, and stylistic inconsistencies, improving clarity and sentence flow.";
+          break;
+        case "tone":
+          actionInstruction = `Rewrite the text adopting a ${targetTone || "Thought Leader"} tone appropriate for a top-tier Medium publication.`;
+          break;
+        case "add_subheadings":
+          actionInstruction = "Enhance the readability by adding engaging subheadings (H2/H3) and organizing long paragraphs into scannable sections.";
+          break;
+        case "add_examples":
+          actionInstruction = "Integrate concrete real-world examples, case studies, or practical scenarios to illustrate key points.";
+          break;
+        case "custom":
+          actionInstruction = customInstruction || "Refine the text to improve quality, flow, and reader engagement.";
+          break;
+        default:
+          actionInstruction = "Refine and polish the text for publication on Medium.";
+      }
+
+      const isPartialSelection = Boolean(fullArticle && fullArticle !== content);
+
+      const prompt = `
+      TASK: You are a expert editorial refiner for Medium.
+      INSTRUCTION: ${actionInstruction}
+
+      ${
+        isPartialSelection
+          ? `FULL ARTICLE CONTEXT FOR REFERENCE:
+      \`\`\`markdown
+      ${fullArticle.slice(0, 1800)}
+      \`\`\`
+      `
+          : ""
+      }
+
+      TARGET TEXT TO REFINE:
+      \`\`\`markdown
+      ${content}
+      \`\`\`
+
+      STRICT REQUIREMENTS:
+      1. Return ONLY the refined markdown output.
+      2. Do NOT add meta-commentary like "Here is the revised version:" or conversational preamble/outro.
+      3. Maintain proper Markdown formatting. If refining a selected excerpt, return only the refined excerpt.
+      `;
+
+      const responseStream = await ai.models.generateContentStream({
+        model: "gemini-3.6-flash",
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: prompt }],
+          },
+        ],
+        config: {
+          systemInstruction: SYSTEM_INSTRUCTION,
+          temperature: 0.7,
+        },
+      });
+
+      for await (const chunk of responseStream) {
+        if (chunk.text) {
+          res.write(`data: ${JSON.stringify({ text: chunk.text })}\n\n`);
+        }
+      }
+
+      res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+      res.end();
+    } catch (error: any) {
+      console.error("Error refining article on server:", error);
+      res.write(
+        `data: ${JSON.stringify({ error: error?.message || "Failed to refine article content" })}\n\n`
+      );
+      res.end();
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

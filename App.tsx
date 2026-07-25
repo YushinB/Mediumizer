@@ -100,6 +100,15 @@ const App: React.FC = () => {
     setActiveDraftId(null);
   };
 
+  const handleUpdateContent = (updatedText: string) => {
+    setArticleContent(updatedText);
+    if (updatedText.trim()) {
+      const saved = saveDraft(updatedText, coverImage, undefined, activeDraftId ?? undefined);
+      setActiveDraftId(saved.id);
+      setDrafts(getSavedDrafts());
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#FDFDFD]">
       {/* Navigation */}
@@ -163,6 +172,7 @@ const App: React.FC = () => {
               content={articleContent} 
               coverImage={coverImage} 
               isGenerating={isGenerating}
+              onUpdateContent={handleUpdateContent}
             />
           </div>
 

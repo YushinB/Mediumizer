@@ -6,6 +6,9 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
+import InlineAIRefinementBar, { RefinementOptions } from './InlineAIRefinementBar';
+import TextSelectionRefineBar from './TextSelectionRefineBar';
+import { streamArticleRefinement } from '../services/geminiService';
 
 // Initialize mermaid
 mermaid.initialize({
@@ -19,6 +22,7 @@ interface ArticlePreviewProps {
   content: string;
   coverImage: string | null;
   isGenerating: boolean;
+  onUpdateContent?: (newContent: string) => void;
 }
 
 const MermaidDiagram = ({ chart }: { chart: string }) => {
@@ -65,11 +69,174 @@ const MermaidDiagram = ({ chart }: { chart: string }) => {
   return <div className="my-10 flex justify-center overflow-x-auto" dangerouslySetInnerHTML={{ __html: svg }} />;
 };
 
-const ArticlePreview: React.FC<ArticlePreviewProps> = ({ content, coverImage, isGenerating }) => {
+const ArticlePreview: React.FC<ArticlePreviewProps> = ({
+  content,
+  coverImage,
+  isGenerating,
+  onUpdateContent,
+}) => {
   const [isCopied, setIsCopied] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [isPdfGenerating, setIsPdfGenerating] = useState(false);
+  
+  // AI Refinement & History State
+  const [isRefining, setIsRefining] = useState(false);
+  const [history, setHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState<number>(-1);
+
+  // Text Selection State
+  const [selectedText, setSelectedText] = useState('');
+  const [selectionPos, setSelectionPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const [isRefiningSelection, setIsRefiningSelection] = useState(false);
+
   const printRef = useRef<HTMLDivElement>(null);
+
+  // Sync history when a new content comes in
+  useEffect(() => {
+    if (content && !isRefining && (!history.length || history[historyIndex] !== content)) {
+      if (historyIndex === -1 || Math.abs(content.length - (history[historyIndex]?.length || 0)) > 40) {
+        setHistory([content]);
+        setHistoryIndex(0);
+      }
+    }
+  }, [content]);
+
+  // Text selection listener inside article area
+  useEffect(() => {
+    const handleMouseUp = () => {
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed) {
+        return;
+      }
+
+      const text = selection.toString().trim();
+      if (text.length > 5 && printRef.current && printRef.current.contains(selection.anchorNode)) {
+        try {
+          const range = selection.getRangeAt(0);
+          const rect = range.getBoundingClientRect();
+          setSelectedText(text);
+          setSelectionPos({
+            top: rect.top,
+            left: rect.left + rect.width / 2,
+          });
+        } catch (e) {
+          // ignore selection errors
+        }
+      }
+    };
+
+    const handleMouseDown = (e: MouseEvent) => {
+      // Don't close if clicking inside selection bar
+      const target = e.target as HTMLElement;
+      if (!target.closest('.text-selection-bar')) {
+        setSelectedText('');
+      }
+    };
+
+    document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('mousedown', handleMouseDown);
+    return () => {
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('mousedown', handleMouseDown);
+    };
+  }, []);
+
+  const handleRefine = async (options: RefinementOptions) => {
+    if (!content || isGenerating || isRefining) return;
+    setIsRefining(true);
+    const originalSnapshot = content;
+
+    try {
+      let accumulated = '';
+      await streamArticleRefinement(
+        {
+          content: content,
+          action: options.action,
+          customInstruction: options.customInstruction,
+          targetTone: options.targetTone,
+        },
+        (chunk) => {
+          accumulated = chunk;
+          if (onUpdateContent) {
+            onUpdateContent(chunk);
+          }
+        }
+      );
+
+      if (accumulated.trim()) {
+        const newHistory = history.slice(0, historyIndex + 1);
+        newHistory.push(accumulated);
+        setHistory(newHistory);
+        setHistoryIndex(newHistory.length - 1);
+      }
+    } catch (error) {
+      console.error('Refinement error:', error);
+      if (onUpdateContent) {
+        onUpdateContent(originalSnapshot);
+      }
+    } finally {
+      setIsRefining(false);
+    }
+  };
+
+  const handleRefineSelection = async (action: string, customInstruction?: string) => {
+    if (!selectedText || !content || isRefiningSelection) return;
+    setIsRefiningSelection(true);
+
+    try {
+      let replacement = '';
+      await streamArticleRefinement(
+        {
+          content: selectedText,
+          action: action,
+          customInstruction: customInstruction,
+          fullArticle: content,
+        },
+        (chunk) => {
+          replacement = chunk;
+        }
+      );
+
+      if (replacement.trim()) {
+        const cleanReplacement = replacement.trim();
+        const updated = content.replace(selectedText, cleanReplacement);
+
+        const newHistory = history.slice(0, historyIndex + 1);
+        newHistory.push(updated);
+        setHistory(newHistory);
+        setHistoryIndex(newHistory.length - 1);
+
+        if (onUpdateContent) {
+          onUpdateContent(updated);
+        }
+      }
+    } catch (error) {
+      console.error('Selection refinement error:', error);
+    } finally {
+      setIsRefiningSelection(false);
+      setSelectedText('');
+    }
+  };
+
+  const handleUndo = () => {
+    if (historyIndex > 0) {
+      const prev = historyIndex - 1;
+      setHistoryIndex(prev);
+      if (onUpdateContent) {
+        onUpdateContent(history[prev]);
+      }
+    }
+  };
+
+  const handleRedo = () => {
+    if (historyIndex < history.length - 1) {
+      const next = historyIndex + 1;
+      setHistoryIndex(next);
+      if (onUpdateContent) {
+        onUpdateContent(history[next]);
+      }
+    }
+  };
   
   // Extract content and keywords
   const keywordMarker = /##\s*SEO\s*Keywords/i;
@@ -286,6 +453,32 @@ const ArticlePreview: React.FC<ArticlePreviewProps> = ({ content, coverImage, is
   return (
     <div className="w-full max-w-[720px] mx-auto bg-white min-h-[80vh] pb-24 transition-all duration-300 sm:hover:shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-none sm:rounded-xl border-x-0 sm:border sm:border-gray-100 p-6 sm:p-12">
       
+      {/* Inline AI Refinement Tools Bar */}
+      {content && !isGenerating && (
+        <InlineAIRefinementBar
+          onRefine={handleRefine}
+          isRefining={isRefining}
+          canUndo={historyIndex > 0}
+          canRedo={historyIndex < history.length - 1}
+          onUndo={handleUndo}
+          onRedo={handleRedo}
+          historyCount={history.length - 1}
+        />
+      )}
+
+      {/* Highlighted Text Selection AI Refine Bar */}
+      {selectedText && (
+        <div className="text-selection-bar">
+          <TextSelectionRefineBar
+            selectedText={selectedText}
+            position={selectionPos}
+            onRefineSelection={handleRefineSelection}
+            onClose={() => setSelectedText('')}
+            isRefiningSelection={isRefiningSelection}
+          />
+        </div>
+      )}
+
       {/* Top Action & Quick Info Bar */}
       {content && (
         <div className="flex items-center justify-between pb-4 mb-6 border-b border-gray-100 font-sans">
