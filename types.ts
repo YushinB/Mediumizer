@@ -31,8 +31,13 @@ export enum LanguageOption {
   VIETNAMESE = 'Vietnamese'
 }
 
-export interface GeneratedArticle {
+export interface SavedDraft {
+  id: string;
   title: string;
-  content: string; // Markdown
-  coverImageBase64?: string;
+  content: string;
+  coverImage: string | null;
+  createdAt: number;
+  updatedAt: number;
+  config?: ArticleConfig;
+  wordCount: number;
 }
