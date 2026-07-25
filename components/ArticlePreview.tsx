@@ -8,7 +8,11 @@ import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import InlineAIRefinementBar, { RefinementOptions } from './InlineAIRefinementBar';
 import TextSelectionRefineBar from './TextSelectionRefineBar';
+import ExportModal from './ExportModal';
 import { streamArticleRefinement } from '../services/geminiService';
+import { ArticleAuthorHeader, ArticleAuthorFooter } from './ArticleAuthorCard';
+import { AuthorProfile } from '../types';
+import { generatePDFDocument } from '../utils/exportUtils';
 
 // Initialize mermaid
 mermaid.initialize({
@@ -23,6 +27,8 @@ interface ArticlePreviewProps {
   coverImage: string | null;
   isGenerating: boolean;
   onUpdateContent?: (newContent: string) => void;
+  authorProfile?: AuthorProfile;
+  onEditAuthorProfile?: () => void;
 }
 
 const MermaidDiagram = ({ chart }: { chart: string }) => {
@@ -74,10 +80,13 @@ const ArticlePreview: React.FC<ArticlePreviewProps> = ({
   coverImage,
   isGenerating,
   onUpdateContent,
+  authorProfile,
+  onEditAuthorProfile,
 }) => {
   const [isCopied, setIsCopied] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [isPdfGenerating, setIsPdfGenerating] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   
   // AI Refinement & History State
   const [isRefining, setIsRefining] = useState(false);
@@ -257,6 +266,8 @@ const ArticlePreview: React.FC<ArticlePreviewProps> = ({
       displayBody = content;
   }
 
+  const wordCount = displayBody ? displayBody.trim().split(/\s+/).filter(Boolean).length : 0;
+
   // Helper to extract title
   const getArticleTitle = (text: string) => {
     const titleMatch = text.match(/^#\s+(.+)$/m);
@@ -348,45 +359,13 @@ const ArticlePreview: React.FC<ArticlePreviewProps> = ({
     setIsPdfGenerating(true);
 
     try {
-        const element = printRef.current;
-        const canvas = await html2canvas(element, {
-            scale: 2, // Improve resolution
-            useCORS: true, // Allow external images (if any)
-            logging: false,
-            backgroundColor: '#ffffff'
-        });
-
-        const imgData = canvas.toDataURL('image/png');
-        const pdf = new jsPDF({
-            orientation: 'portrait',
-            unit: 'mm',
-            format: 'a4'
-        });
-
-        const imgWidth = 210; // A4 width in mm
-        const pageHeight = 297; // A4 height in mm
-        const imgHeight = (canvas.height * imgWidth) / canvas.width;
-        let heightLeft = imgHeight;
-        let position = 0;
-
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
-
-        while (heightLeft >= 0) {
-            position = heightLeft - imgHeight;
-            pdf.addPage();
-            pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-            heightLeft -= pageHeight;
-        }
-
-        const title = getArticleTitle(content);
-        const slug = title.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
-        pdf.save(`${slug}.pdf`);
-
+      const title = getArticleTitle(content);
+      const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'mediumizer-story';
+      await generatePDFDocument(printRef.current, slug);
     } catch (error) {
-        console.error("PDF generation failed:", error);
+      console.error("PDF generation failed:", error);
     } finally {
-        setIsPdfGenerating(false);
+      setIsPdfGenerating(false);
     }
   };
 
@@ -549,6 +528,14 @@ const ArticlePreview: React.FC<ArticlePreviewProps> = ({
             {/* Content Area */}
             {content ? (
                 <>
+                {authorProfile && onEditAuthorProfile && (
+                  <ArticleAuthorHeader
+                    profile={authorProfile}
+                    wordCount={wordCount}
+                    onEditProfile={onEditAuthorProfile}
+                  />
+                )}
+
                 <article className="
                     prose prose-lg md:prose-xl max-w-none
                     font-serif text-[#242424]
@@ -633,6 +620,14 @@ const ArticlePreview: React.FC<ArticlePreviewProps> = ({
                 )}
                 </article>
 
+                {authorProfile && onEditAuthorProfile && !isGenerating && (
+                  <ArticleAuthorFooter
+                    profile={authorProfile}
+                    onEditProfile={onEditAuthorProfile}
+                  />
+                )}
+
+
                 {/* Tags Section */}
                 {!isGenerating && displayTags.length > 0 && (
                     <div className="mt-12 mb-6 pt-8 border-t border-gray-100">
@@ -663,21 +658,21 @@ const ArticlePreview: React.FC<ArticlePreviewProps> = ({
 
         {!isGenerating && content && (
             <div className="mt-20 pt-10 border-t border-gray-100 flex flex-col sm:flex-row justify-between items-center text-gray-500 gap-6">
-                <div className="flex gap-3 flex-wrap">
+                <div className="flex gap-3 flex-wrap items-center">
                     <button 
-                        onClick={handleDownloadJekyll}
-                        className="flex items-center gap-2 text-gray-600 hover:text-black transition-colors px-5 py-2.5 hover:bg-gray-50 rounded-full border border-gray-200 hover:border-gray-300"
-                        title="Download as Jekyll .md file"
+                        onClick={() => setIsExportModalOpen(true)}
+                        className="flex items-center gap-2 text-white bg-emerald-600 hover:bg-emerald-700 transition-all px-5 py-2.5 rounded-full shadow-xs active:scale-95"
+                        title="Export as Markdown, Jekyll, Dev.to, HTML, TXT, JSON or PDF"
                     >
                         <Download size={16} />
-                        <span className="font-sans text-sm font-medium">Jekyll</span>
+                        <span className="font-sans text-sm font-semibold">Export Options</span>
                     </button>
-                    
+
                     <button 
                         onClick={handleDownloadPDF}
                         disabled={isPdfGenerating}
-                        className={`flex items-center gap-2 text-gray-600 hover:text-black transition-colors px-5 py-2.5 hover:bg-gray-50 rounded-full border border-gray-200 hover:border-gray-300 ${isPdfGenerating ? 'opacity-50 cursor-wait' : ''}`}
-                        title="Download as PDF"
+                        className={`flex items-center gap-2 text-gray-600 hover:text-black transition-colors px-4 py-2.5 hover:bg-gray-50 rounded-full border border-gray-200 hover:border-gray-300 ${isPdfGenerating ? 'opacity-50 cursor-wait' : ''}`}
+                        title="Quick Download PDF"
                     >
                         <FileText size={16} />
                         <span className="font-sans text-sm font-medium">
@@ -687,7 +682,7 @@ const ArticlePreview: React.FC<ArticlePreviewProps> = ({
                     
                     <button 
                         onClick={handleCopy}
-                        className={`flex items-center gap-2 transition-colors px-5 py-2.5 rounded-full border ${
+                        className={`flex items-center gap-2 transition-colors px-4 py-2.5 rounded-full border ${
                           isCopied 
                             ? 'bg-emerald-50 text-emerald-700 border-emerald-200 shadow-xs' 
                             : 'text-gray-600 hover:text-black hover:bg-gray-50 border-gray-200 hover:border-gray-300'
@@ -695,13 +690,13 @@ const ArticlePreview: React.FC<ArticlePreviewProps> = ({
                         title="Copy markdown content to clipboard"
                     >
                         {isCopied ? <Check size={16} className="text-emerald-600 stroke-[2.5]" /> : <Copy size={16} />}
-                        <span className="font-sans text-sm font-medium">{isCopied ? 'Copied to Clipboard!' : 'Copy to Clipboard'}</span>
+                        <span className="font-sans text-sm font-medium">{isCopied ? 'Copied!' : 'Copy'}</span>
                     </button>
 
                     <div className="relative">
                         <button 
                             onClick={() => setIsShareOpen(!isShareOpen)}
-                            className={`flex items-center gap-2 text-gray-600 hover:text-black transition-colors px-5 py-2.5 rounded-full border border-gray-200 hover:border-gray-300 ${isShareOpen ? 'bg-gray-50 text-black border-gray-300' : 'hover:bg-gray-50'}`}
+                            className={`flex items-center gap-2 text-gray-600 hover:text-black transition-colors px-4 py-2.5 rounded-full border border-gray-200 hover:border-gray-300 ${isShareOpen ? 'bg-gray-50 text-black border-gray-300' : 'hover:bg-gray-50'}`}
                         >
                             <Share2 size={16} />
                             <span className="font-sans text-sm font-medium">Share</span>
@@ -741,6 +736,19 @@ const ArticlePreview: React.FC<ArticlePreviewProps> = ({
                 </div>
             </div>
         )}
+
+        {/* Multi-Format Export Modal */}
+        <ExportModal
+          isOpen={isExportModalOpen}
+          onClose={() => setIsExportModalOpen(false)}
+          content={content}
+          coverImage={coverImage}
+          tags={displayTags}
+          authorProfile={authorProfile}
+          wordCount={wordCount}
+          readTimeMinutes={Math.max(1, Math.ceil(wordCount / 200))}
+          printRef={printRef}
+        />
     </div>
   );
 };

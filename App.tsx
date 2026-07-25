@@ -2,10 +2,12 @@ import React, { useState, useRef, useEffect } from 'react';
 import InputForm from './components/InputForm';
 import ArticlePreview from './components/ArticlePreview';
 import DraftsDrawer from './components/DraftsDrawer';
+import AuthorProfileModal from './components/AuthorProfileModal';
 import { streamArticleGeneration, generateCoverImage } from './services/geminiService';
-import { ArticleConfig, SavedDraft } from './types';
+import { ArticleConfig, SavedDraft, AuthorProfile } from './types';
 import { getSavedDrafts, saveDraft, deleteDraft, clearAllDrafts } from './utils/draftStorage';
-import { Clock, Plus, Sparkles } from 'lucide-react';
+import { getSavedAuthorProfile, saveAuthorProfile } from './utils/authorStorage';
+import { Clock, Plus, Sparkles, User } from 'lucide-react';
 
 const App: React.FC = () => {
   const [articleContent, setArticleContent] = useState<string>('');
@@ -17,13 +19,23 @@ const App: React.FC = () => {
   const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState<boolean>(false);
 
+  // Author Profile State
+  const [authorProfile, setAuthorProfile] = useState<AuthorProfile>(getSavedAuthorProfile());
+  const [isAuthorModalOpen, setIsAuthorModalOpen] = useState<boolean>(false);
+
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Load drafts on mount
+  // Load drafts and author profile on mount
   useEffect(() => {
     const loaded = getSavedDrafts();
     setDrafts(loaded);
+    setAuthorProfile(getSavedAuthorProfile());
   }, []);
+
+  const handleSaveAuthorProfile = (updated: AuthorProfile) => {
+    saveAuthorProfile(updated);
+    setAuthorProfile(updated);
+  };
 
   const handleGenerate = async (config: ArticleConfig) => {
     setIsGenerating(true);
@@ -123,6 +135,26 @@ const App: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-3">
+              {/* Author Profile Trigger Button */}
+              <button
+                onClick={() => setIsAuthorModalOpen(true)}
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-gray-100 hover:bg-gray-200 text-gray-800 transition-colors"
+                title="Edit Author Profile & Publication Metadata"
+              >
+                <img
+                  src={authorProfile.avatarUrl}
+                  alt={authorProfile.name}
+                  className="w-5 h-5 rounded-full object-cover"
+                  onError={(e) => {
+                    (e.target as HTMLElement).setAttribute(
+                      'src',
+                      'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'
+                    );
+                  }}
+                />
+                <span className="hidden sm:inline font-semibold">{authorProfile.name}</span>
+              </button>
+
               {/* Drafts & History Trigger Button */}
               <button
                 onClick={() => setIsDrawerOpen(true)}
@@ -173,11 +205,21 @@ const App: React.FC = () => {
               coverImage={coverImage} 
               isGenerating={isGenerating}
               onUpdateContent={handleUpdateContent}
+              authorProfile={authorProfile}
+              onEditAuthorProfile={() => setIsAuthorModalOpen(true)}
             />
           </div>
 
         </div>
       </main>
+
+      {/* Author Profile & Publication Settings Modal */}
+      <AuthorProfileModal
+        isOpen={isAuthorModalOpen}
+        onClose={() => setIsAuthorModalOpen(false)}
+        profile={authorProfile}
+        onSaveProfile={handleSaveAuthorProfile}
+      />
 
       {/* Local Drafts & History Drawer */}
       <DraftsDrawer
@@ -190,6 +232,7 @@ const App: React.FC = () => {
         onClearAll={handleClearAllDrafts}
         onNewArticle={handleNewArticle}
       />
+
     </div>
   );
 };

@@ -41,3 +41,15 @@ export interface SavedDraft {
   config?: ArticleConfig;
   wordCount: number;
 }
+
+export interface AuthorProfile {
+  name: string;
+  username: string;
+  tagline: string;
+  bio: string;
+  avatarUrl: string;
+  publicationName: string;
+  isMediumMember: boolean;
+  followersCount: string;
+  publishDate?: string;
+}
