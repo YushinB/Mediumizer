@@ -1,8 +1,15 @@
 export interface ArticleConfig {
   topic: string;
+  source: ArticleSource;
   tone: ToneOption;
   length: LengthOption;
   language: LanguageOption;
+}
+
+export enum ArticleSource {
+  TOPIC = 'Topic',
+  YOUTUBE = 'YouTube',
+  OUTLINE = 'Outline'
 }
 
 export enum ToneOption {

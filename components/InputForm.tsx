@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { ArticleConfig, ToneOption, LengthOption, LanguageOption } from '../types';
-import { Sparkles, PenTool, Globe } from 'lucide-react';
+import { ArticleConfig, ToneOption, LengthOption, LanguageOption, ArticleSource } from '../types';
+import { Sparkles, PenTool, Globe, Youtube, Type, List } from 'lucide-react';
 
 interface InputFormProps {
   onSubmit: (config: ArticleConfig) => void;
@@ -8,15 +8,48 @@ interface InputFormProps {
 }
 
 const InputForm: React.FC<InputFormProps> = ({ onSubmit, isGenerating }) => {
-  const [topic, setTopic] = useState('');
+  const [inputValue, setInputValue] = useState('');
+  const [source, setSource] = useState<ArticleSource>(ArticleSource.TOPIC);
   const [tone, setTone] = useState<ToneOption>(ToneOption.PROFESSIONAL);
   const [length, setLength] = useState<LengthOption>(LengthOption.MEDIUM);
   const [language, setLanguage] = useState<LanguageOption>(LanguageOption.ENGLISH);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (topic.trim()) {
-      onSubmit({ topic, tone, length, language });
+    if (inputValue.trim()) {
+      onSubmit({ 
+        topic: inputValue, // We map the input value to 'topic' property for the service
+        source,
+        tone, 
+        length, 
+        language 
+      });
+    }
+  };
+
+  const getPlaceholder = () => {
+    switch (source) {
+      case ArticleSource.TOPIC:
+        return "e.g. The future of sustainable architecture in urban environments...";
+      case ArticleSource.YOUTUBE:
+        return "https://www.youtube.com/watch?v=...";
+      case ArticleSource.OUTLINE:
+        return "e.g. A comprehensive guide to machine learning for beginners...";
+      default:
+        return "";
+    }
+  };
+
+  const getHelperText = () => {
+    switch (source) {
+      case ArticleSource.TOPIC:
+        return "Enter a topic, we'll handle the prose.";
+      case ArticleSource.YOUTUBE:
+        return "Paste a YouTube link, we'll adapt the content.";
+      case ArticleSource.OUTLINE:
+        return "Enter a topic, we'll structure the ideas.";
+      default:
+        return "";
     }
   };
 
@@ -27,21 +60,67 @@ const InputForm: React.FC<InputFormProps> = ({ onSubmit, isGenerating }) => {
             <PenTool className="text-white" size={20} />
         </div>
         <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Draft your story</h2>
-        <p className="text-gray-500 mt-2">Enter a topic, we'll handle the prose.</p>
+        <p className="text-gray-500 mt-2">
+          {getHelperText()}
+        </p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
+        
+        {/* Source Toggle */}
+        <div className="p-1 bg-gray-100 rounded-lg flex gap-1">
+          <button
+            type="button"
+            onClick={() => { setSource(ArticleSource.TOPIC); setInputValue(''); }}
+            disabled={isGenerating}
+            className={`flex-1 flex items-center justify-center gap-2 py-2 px-2 rounded-md text-sm font-medium transition-all ${
+              source === ArticleSource.TOPIC
+                ? 'bg-white text-black shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <Type size={16} />
+            Topic
+          </button>
+          <button
+            type="button"
+            onClick={() => { setSource(ArticleSource.OUTLINE); setInputValue(''); }}
+            disabled={isGenerating}
+            className={`flex-1 flex items-center justify-center gap-2 py-2 px-2 rounded-md text-sm font-medium transition-all ${
+              source === ArticleSource.OUTLINE
+                ? 'bg-white text-indigo-600 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <List size={16} />
+            Outline
+          </button>
+          <button
+            type="button"
+            onClick={() => { setSource(ArticleSource.YOUTUBE); setInputValue(''); }}
+            disabled={isGenerating}
+            className={`flex-1 flex items-center justify-center gap-2 py-2 px-2 rounded-md text-sm font-medium transition-all ${
+              source === ArticleSource.YOUTUBE
+                ? 'bg-white text-red-600 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <Youtube size={16} />
+            YouTube
+          </button>
+        </div>
+
         <div>
           <label htmlFor="topic" className="block text-sm font-medium text-gray-700 mb-2">
-            What do you want to write about?
+            {source === ArticleSource.YOUTUBE ? 'YouTube Video URL' : 'What do you want to write about?'}
           </label>
           <textarea
             id="topic"
-            rows={4}
+            rows={source === ArticleSource.YOUTUBE ? 2 : 4}
             className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-black focus:border-transparent outline-none transition-all resize-none text-gray-800 placeholder-gray-400"
-            placeholder="e.g. The future of sustainable architecture in urban environments..."
-            value={topic}
-            onChange={(e) => setTopic(e.target.value)}
+            placeholder={getPlaceholder()}
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
             disabled={isGenerating}
             required
           />
@@ -111,9 +190,9 @@ const InputForm: React.FC<InputFormProps> = ({ onSubmit, isGenerating }) => {
 
         <button
           type="submit"
-          disabled={!topic.trim() || isGenerating}
+          disabled={!inputValue.trim() || isGenerating}
           className={`w-full py-4 px-6 rounded-xl flex items-center justify-center gap-2 text-white font-medium transition-all ${
-            !topic.trim() || isGenerating
+            !inputValue.trim() || isGenerating
               ? 'bg-gray-300 cursor-not-allowed'
               : 'bg-black hover:bg-gray-800 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5'
           }`}
@@ -121,12 +200,12 @@ const InputForm: React.FC<InputFormProps> = ({ onSubmit, isGenerating }) => {
           {isGenerating ? (
             <>
               <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              <span>Crafting...</span>
+              <span>{source === ArticleSource.OUTLINE ? 'Structuring...' : 'Crafting...'}</span>
             </>
           ) : (
             <>
               <Sparkles size={18} />
-              <span>Generate Article</span>
+              <span>{source === ArticleSource.OUTLINE ? 'Generate Outline' : 'Generate Article'}</span>
             </>
           )}
         </button>
