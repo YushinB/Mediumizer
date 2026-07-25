@@ -172,6 +172,8 @@ async function startServer() {
       return;
     }
 
+    const fallbackUrl = `https://picsum.photos/seed/${encodeURIComponent(topic.slice(0, 35))}/1200/630`;
+
     try {
       const ai = getGenAIClient();
       const isUrl = /^(http|https):\/\/[^ "]+$/.test(topic);
@@ -184,34 +186,44 @@ async function startServer() {
       The style should be modern, abstract or flat design, suitable for a tech or culture publication. 
       No text on the image. High contrast, pleasing colors.`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.1-flash-lite-image",
-        contents: {
-          parts: [{ text: prompt }],
-        },
-      });
-
       let base64Image = "";
-      const parts = response.candidates?.[0]?.content?.parts;
-      if (parts) {
-        for (const part of parts) {
-          if (part.inlineData && part.inlineData.data) {
-            base64Image = part.inlineData.data;
-            break;
+      let mimeType = "image/png";
+
+      // Attempt primary image model
+      try {
+        const response = await ai.models.generateContent({
+          model: "gemini-3.1-flash-lite-image",
+          contents: {
+            parts: [{ text: prompt }],
+          },
+        });
+
+        const parts = response.candidates?.[0]?.content?.parts;
+        if (parts) {
+          for (const part of parts) {
+            if (part.inlineData && part.inlineData.data) {
+              base64Image = part.inlineData.data;
+              if (part.inlineData.mimeType) {
+                mimeType = part.inlineData.mimeType;
+              }
+              break;
+            }
           }
         }
+      } catch (geminiError: any) {
+        console.warn("Gemini image generation unavailable, falling back to curated placeholder:", geminiError?.message || geminiError);
       }
 
-      if (!base64Image) {
-        res.status(500).json({ error: "No image data generated" });
-        return;
+      if (base64Image) {
+        res.json({ imageUrl: `data:${mimeType};base64,${base64Image}` });
+      } else {
+        // Return reliable high quality editorial placeholder image if model fails/quota exhausted
+        res.json({ imageUrl: fallbackUrl, fallback: true });
       }
-
-      const mimeType = parts?.find((p) => p.inlineData)?.inlineData?.mimeType || "image/png";
-      res.json({ imageUrl: `data:${mimeType};base64,${base64Image}` });
     } catch (error: any) {
       console.error("Error generating cover image on server:", error);
-      res.status(500).json({ error: error?.message || "Failed to generate cover image" });
+      // Even on severe error, return the fallback URL so the UI remains operational
+      res.json({ imageUrl: fallbackUrl, fallback: true });
     }
   });
 

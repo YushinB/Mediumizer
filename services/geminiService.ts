@@ -63,6 +63,7 @@ export const streamArticleGeneration = async (
 };
 
 export const generateCoverImage = async (topic: string): Promise<string> => {
+  const fallbackUrl = `https://picsum.photos/seed/${encodeURIComponent(topic.slice(0, 35))}/1200/630`;
   try {
     const response = await fetch("/api/generate-cover", {
       method: "POST",
@@ -73,14 +74,14 @@ export const generateCoverImage = async (topic: string): Promise<string> => {
     });
 
     if (!response.ok) {
-      return "";
+      return fallbackUrl;
     }
 
     const data = await response.json();
-    return data.imageUrl || "";
+    return data.imageUrl || fallbackUrl;
   } catch (error) {
     console.error("Error generating cover image:", error);
-    return "";
+    return fallbackUrl;
   }
 };
 

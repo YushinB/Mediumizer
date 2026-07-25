@@ -37,6 +37,8 @@ export const DraftsDrawer: React.FC<DraftsDrawerProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [isConfirmingClearAll, setIsConfirmingClearAll] = useState(false);
 
   if (!isOpen) return null;
 
@@ -252,7 +254,7 @@ export const DraftsDrawer: React.FC<DraftsDrawerProps> = ({
                       </div>
 
                       {/* Quick Action Buttons */}
-                      <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                      <div className="flex items-center gap-1 opacity-90 group-hover:opacity-100 transition-opacity">
                         <button
                           onClick={(e) => handleCopy(e, draft)}
                           className="p-1 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-md transition-colors"
@@ -273,18 +275,43 @@ export const DraftsDrawer: React.FC<DraftsDrawerProps> = ({
                           <Download size={13} />
                         </button>
 
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (confirm('Delete this saved draft?')) {
-                              onDeleteDraft(draft.id);
-                            }
-                          }}
-                          className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
-                          title="Delete draft"
-                        >
-                          <Trash2 size={13} />
-                        </button>
+                        {deleteConfirmId === draft.id ? (
+                          <div className="flex items-center gap-1 bg-red-50 p-0.5 rounded-lg border border-red-200" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onDeleteDraft(draft.id);
+                                setDeleteConfirmId(null);
+                              }}
+                              className="px-2 py-0.5 bg-red-600 hover:bg-red-700 text-white rounded-md text-[10px] font-bold transition-all shadow-2xs"
+                            >
+                              Delete
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDeleteConfirmId(null);
+                              }}
+                              className="p-0.5 text-gray-400 hover:text-gray-700 rounded-md"
+                              title="Cancel"
+                            >
+                              <X size={12} />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDeleteConfirmId(draft.id);
+                            }}
+                            className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                            title="Delete draft"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -295,18 +322,42 @@ export const DraftsDrawer: React.FC<DraftsDrawerProps> = ({
 
           {/* Footer */}
           {drafts.length > 0 && (
-            <div className="p-4 border-t border-gray-100 bg-gray-50/50 flex items-center justify-between text-xs">
-              <span className="text-gray-500">{drafts.length} draft{drafts.length === 1 ? '' : 's'} stored locally</span>
-              <button
-                onClick={() => {
-                  if (confirm('Are you sure you want to clear all saved drafts? This cannot be undone.')) {
-                    onClearAll();
-                  }
-                }}
-                className="text-red-600 hover:text-red-700 font-medium text-xs hover:underline"
-              >
-                Clear all history
-              </button>
+            <div className="p-4 border-t border-gray-100 bg-gray-50/50">
+              {isConfirmingClearAll ? (
+                <div className="flex items-center justify-between gap-2 p-2 bg-red-50 rounded-xl border border-red-200">
+                  <span className="text-[11px] font-semibold text-red-800">Clear all saved drafts?</span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setIsConfirmingClearAll(false)}
+                      className="px-2.5 py-1 text-[11px] font-medium text-gray-600 hover:text-gray-900 bg-white rounded-lg border border-gray-200"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClearAll();
+                        setIsConfirmingClearAll(false);
+                      }}
+                      className="px-2.5 py-1 text-[11px] font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-2xs"
+                    >
+                      Confirm Clear
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-gray-500">{drafts.length} draft{drafts.length === 1 ? '' : 's'} stored locally</span>
+                  <button
+                    onClick={() => setIsConfirmingClearAll(true)}
+                    className="text-red-600 hover:text-red-700 font-semibold text-xs hover:underline flex items-center gap-1"
+                  >
+                    <Trash2 size={12} />
+                    <span>Clear all history</span>
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

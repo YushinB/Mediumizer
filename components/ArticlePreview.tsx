@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Download, Share2, Copy, Check, Twitter, Linkedin, Facebook, FileText, Tag } from 'lucide-react';
+import { Download, Share2, Copy, Check, Twitter, Linkedin, Facebook, FileText, Tag, Sparkles, Workflow, Image as ImageIcon } from 'lucide-react';
 import mermaid from 'mermaid';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -9,10 +9,12 @@ import html2canvas from 'html2canvas';
 import InlineAIRefinementBar, { RefinementOptions } from './InlineAIRefinementBar';
 import TextSelectionRefineBar from './TextSelectionRefineBar';
 import ExportModal from './ExportModal';
-import { streamArticleRefinement } from '../services/geminiService';
+import TableOfContents, { slugifyHeading } from './TableOfContents';
+import { streamArticleRefinement, generateCoverImage } from '../services/geminiService';
 import { ArticleAuthorHeader, ArticleAuthorFooter } from './ArticleAuthorCard';
 import { AuthorProfile } from '../types';
 import { generatePDFDocument } from '../utils/exportUtils';
+import { generateMermaidSvgDataUrl, extractMermaidNodes } from '../utils/diagramImageGenerator';
 
 // Initialize mermaid
 mermaid.initialize({
@@ -31,9 +33,17 @@ interface ArticlePreviewProps {
   onEditAuthorProfile?: () => void;
 }
 
-const MermaidDiagram = ({ chart }: { chart: string }) => {
+interface MermaidDiagramProps {
+  chart: string;
+  onReplaceWithAIImage?: (chartCode: string, imageUrl: string) => void;
+}
+
+const MermaidDiagram = ({ chart, onReplaceWithAIImage }: MermaidDiagramProps) => {
   const [svg, setSvg] = useState<string>('');
   const [error, setError] = useState<boolean>(false);
+  const [aiImageUrl, setAiImageUrl] = useState<string | null>(null);
+  const [isGeneratingAI, setIsGeneratingAI] = useState<boolean>(false);
+  const [activeTab, setActiveTab] = useState<'diagram' | 'ai-image'>('diagram');
 
   useEffect(() => {
     let isMounted = true;
@@ -41,10 +51,7 @@ const MermaidDiagram = ({ chart }: { chart: string }) => {
     const renderChart = async () => {
       if (!chart) return;
       try {
-        // Attempt to parse first to catch syntax errors without rendering the error SVG
-        // This is crucial for streaming content where syntax is temporarily incomplete
         await mermaid.parse(chart);
-
         const id = `mermaid-${Math.random().toString(36).substr(2, 9)}`;
         const { svg } = await mermaid.render(id, chart);
         
@@ -53,7 +60,6 @@ const MermaidDiagram = ({ chart }: { chart: string }) => {
             setError(false);
         }
       } catch (err) {
-        // Failed to parse or render (likely incomplete syntax during stream)
         if (isMounted) setError(true);
       }
     };
@@ -65,14 +71,125 @@ const MermaidDiagram = ({ chart }: { chart: string }) => {
     };
   }, [chart]);
 
+  const handleGenerateAIImage = async () => {
+    setIsGeneratingAI(true);
+    try {
+      const nodes = extractMermaidNodes(chart);
+      const stepSummary = nodes.length > 0 
+        ? nodes.map((n) => n.label).join(' -> ') 
+        : chart.replace(/graph|flowchart|TD|LR/gi, '').slice(0, 150);
+
+      const topic = `Technical process diagram illustration showing workflow steps: ${stepSummary}`;
+      
+      let url = await generateCoverImage(topic);
+
+      // If AI model rate limited or returned placeholder photo, generate 100% relevant vector infographic
+      if (!url || url.includes('picsum.photos')) {
+        url = generateMermaidSvgDataUrl(chart);
+      }
+
+      setAiImageUrl(url);
+      setActiveTab('ai-image');
+    } catch (e) {
+      console.error('Failed to generate AI illustration for diagram:', e);
+      // Fallback to custom SVG vector infographic
+      const fallbackSvg = generateMermaidSvgDataUrl(chart);
+      setAiImageUrl(fallbackSvg);
+      setActiveTab('ai-image');
+    } finally {
+      setIsGeneratingAI(false);
+    }
+  };
+
+  const handleApplyToArticle = () => {
+    if (aiImageUrl && onReplaceWithAIImage) {
+      onReplaceWithAIImage(chart, aiImageUrl);
+    }
+  };
+
   if (error) {
-     // Show loading state for incomplete/invalid syntax during typing
-     return <div className="p-4 bg-gray-50 border border-gray-100 rounded text-xs text-gray-400 font-mono text-center">Rendering chart...</div>;
+     return <div className="p-4 bg-gray-50 border border-gray-100 rounded-xl text-xs text-gray-400 font-mono text-center my-6">Rendering diagram...</div>;
   }
   
-  if (!svg) return <div className="p-4 bg-gray-50 border border-gray-100 rounded text-xs text-gray-400 font-mono animate-pulse text-center">Loading diagram...</div>;
+  if (!svg) return <div className="p-4 bg-gray-50 border border-gray-100 rounded-xl text-xs text-gray-400 font-mono animate-pulse text-center my-6">Loading diagram...</div>;
 
-  return <div className="my-10 flex justify-center overflow-x-auto" dangerouslySetInnerHTML={{ __html: svg }} />;
+  return (
+    <div className="my-10 rounded-2xl border border-gray-200/80 bg-slate-50/50 p-4 shadow-xs overflow-hidden">
+      {/* Header bar with AI Convert options */}
+      <div className="flex flex-wrap items-center justify-between gap-2 pb-3 mb-3 border-b border-gray-200/60 text-xs font-sans">
+        <div className="flex items-center gap-2 text-slate-700 font-semibold">
+          <Workflow size={15} className="text-emerald-600" />
+          <span>Workflow Diagram</span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {aiImageUrl && (
+            <div className="flex bg-gray-200/80 p-0.5 rounded-lg text-[11px] font-medium">
+              <button
+                type="button"
+                onClick={() => setActiveTab('diagram')}
+                className={`px-2.5 py-1 rounded-md transition-all ${
+                  activeTab === 'diagram' ? 'bg-white shadow-xs text-gray-900 font-bold' : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Mermaid Flow
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('ai-image')}
+                className={`px-2.5 py-1 rounded-md transition-all ${
+                  activeTab === 'ai-image' ? 'bg-white shadow-xs text-emerald-800 font-bold' : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                AI Illustration
+              </button>
+            </div>
+          )}
+
+          {!aiImageUrl ? (
+            <button
+              type="button"
+              onClick={handleGenerateAIImage}
+              disabled={isGeneratingAI}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-medium shadow-2xs transition-all active:scale-95 disabled:opacity-50"
+              title="Replace or augment this flowchart with a custom AI-generated editorial illustration"
+            >
+              <Sparkles size={13} className={isGeneratingAI ? 'animate-spin' : ''} />
+              <span>{isGeneratingAI ? 'Generating AI Image...' : 'Convert to AI Illustration'}</span>
+            </button>
+          ) : (
+            onReplaceWithAIImage && (
+              <button
+                type="button"
+                onClick={handleApplyToArticle}
+                className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-[11px] font-semibold transition-all active:scale-95"
+                title="Replace diagram in article markdown"
+              >
+                <Check size={12} className="text-emerald-400" />
+                <span>Insert Image into Article</span>
+              </button>
+            )
+          )}
+        </div>
+      </div>
+
+      {/* Main View Area */}
+      {activeTab === 'diagram' || !aiImageUrl ? (
+        <div className="flex justify-center overflow-x-auto py-2" dangerouslySetInnerHTML={{ __html: svg }} />
+      ) : (
+        <div className="flex flex-col items-center gap-2 py-2">
+          <img
+            src={aiImageUrl}
+            alt="AI Generated Article Illustration"
+            className="rounded-xl shadow-sm max-h-[420px] w-full object-cover border border-gray-100"
+          />
+          <span className="text-[11px] text-gray-400 italic">
+            Generated with AI Editorial Illustration Engine
+          </span>
+        </div>
+      )}
+    </div>
+  );
 };
 
 const ArticlePreview: React.FC<ArticlePreviewProps> = ({
@@ -272,6 +389,29 @@ const ArticlePreview: React.FC<ArticlePreviewProps> = ({
   const getArticleTitle = (text: string) => {
     const titleMatch = text.match(/^#\s+(.+)$/m);
     return titleMatch ? titleMatch[1].trim() : 'Mediumizer Article';
+  };
+
+  const handleReplaceMermaidWithImage = (chartCode: string, imageUrl: string) => {
+    if (!onUpdateContent || !content) return;
+
+    const trimmedChart = chartCode.trim();
+    // Try to find exact ```mermaid code block
+    const blockExact = `\`\`\`mermaid\n${trimmedChart}\n\`\`\``;
+    const blockInline = `\`\`\`mermaid ${trimmedChart} \`\`\``;
+    
+    let updated = content;
+    if (updated.includes(blockExact)) {
+      updated = updated.replace(blockExact, `\n\n![Editorial Illustration](${imageUrl})\n\n`);
+    } else if (updated.includes(blockInline)) {
+      updated = updated.replace(blockInline, `\n\n![Editorial Illustration](${imageUrl})\n\n`);
+    } else {
+      // Fallback regex search for mermaid block
+      const snippet = trimmedChart.slice(0, 30).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp('```mermaid[\\s\\S]*?' + snippet + '[\\s\\S]*?```', 'm');
+      updated = updated.replace(regex, `\n\n![Editorial Illustration](${imageUrl})\n\n`);
+    }
+
+    onUpdateContent(updated);
   };
 
   const handleDownloadJekyll = () => {
@@ -536,6 +676,11 @@ const ArticlePreview: React.FC<ArticlePreviewProps> = ({
                   />
                 )}
 
+                {/* Table of Contents for Long-Form Navigation */}
+                {!isGenerating && (
+                  <TableOfContents content={displayBody} />
+                )}
+
                 <article className="
                     prose prose-lg md:prose-xl max-w-none
                     font-serif text-[#242424]
@@ -578,8 +723,22 @@ const ArticlePreview: React.FC<ArticlePreviewProps> = ({
                     remarkPlugins={[remarkMath]}
                     rehypePlugins={[rehypeKatex]}
                     components={{
-                        // Custom H1 to ensure it mimics Title style perfectly
-                        h1: ({node, ...props}) => <h1 className="font-sans text-[32px] md:text-[46px] font-extrabold leading-[1.1] tracking-tight text-[#242424] mb-10" {...props} />,
+                        // Custom H1, H2, H3 with anchor IDs for Table of Contents navigation
+                        h1: ({node, children, ...props}: any) => {
+                            const text = React.Children.toArray(children).join('');
+                            const id = slugifyHeading(text);
+                            return <h1 id={id} className="font-sans text-[32px] md:text-[46px] font-extrabold leading-[1.1] tracking-tight text-[#242424] mb-10 scroll-mt-24" {...props}>{children}</h1>;
+                        },
+                        h2: ({node, children, ...props}: any) => {
+                            const text = React.Children.toArray(children).join('');
+                            const id = slugifyHeading(text);
+                            return <h2 id={id} className="font-sans text-[26px] md:text-[32px] font-bold leading-[1.2] text-[#242424] mt-12 mb-4 scroll-mt-24" {...props}>{children}</h2>;
+                        },
+                        h3: ({node, children, ...props}: any) => {
+                            const text = React.Children.toArray(children).join('');
+                            const id = slugifyHeading(text);
+                            return <h3 id={id} className="font-sans text-[22px] md:text-[26px] font-bold leading-[1.2] text-[#242424] mt-8 mb-3 scroll-mt-24" {...props}>{children}</h3>;
+                        },
                         // Clean up blockquote to standard markdown if not overridden
                         blockquote: ({node, ...props}) => <blockquote {...props} />,
                         code({node, inline, className, children, ...props}: any) {
@@ -587,7 +746,12 @@ const ArticlePreview: React.FC<ArticlePreviewProps> = ({
                             const isMermaid = match && match[1] === 'mermaid';
                             
                             if (isMermaid) {
-                                return <MermaidDiagram chart={String(children).replace(/\n$/, '')} />;
+                                return (
+                                  <MermaidDiagram
+                                    chart={String(children).replace(/\n$/, '')}
+                                    onReplaceWithAIImage={handleReplaceMermaidWithImage}
+                                  />
+                                );
                             }
 
                             if (!inline && match) {
