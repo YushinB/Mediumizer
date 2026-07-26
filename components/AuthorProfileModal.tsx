@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { X, User, Sparkles, Check, Globe, Star, ShieldCheck, Image as ImageIcon } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { X, User, Sparkles, Check, Globe, Star, ShieldCheck, Image as ImageIcon, Upload, Camera } from 'lucide-react';
 import { AuthorProfile } from '../types';
 import { AVATAR_PRESETS } from '../utils/authorStorage';
 
@@ -18,8 +18,39 @@ export const AuthorProfileModal: React.FC<AuthorProfileModalProps> = ({
 }) => {
   const [formData, setFormData] = useState<AuthorProfile>(profile);
   const [showCustomAvatarInput, setShowCustomAvatarInput] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      processFile(file);
+    }
+  };
+
+  const processFile = (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      setUploadError('Please select a valid image file (JPEG, PNG, WebP, etc.)');
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setUploadError('Image size should be less than 5MB');
+      return;
+    }
+
+    setUploadError(null);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const result = event.target?.result;
+      if (typeof result === 'string') {
+        setFormData({ ...formData, avatarUrl: result });
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,58 +95,110 @@ export const AuthorProfileModal: React.FC<AuthorProfileModalProps> = ({
               <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">
                 Author Avatar
               </label>
+
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileChange}
+                accept="image/*"
+                className="hidden"
+              />
               
-              <div className="flex items-center gap-4 mb-3">
-                <img
-                  src={formData.avatarUrl}
-                  alt={formData.name}
-                  className="w-14 h-14 rounded-full object-cover ring-2 ring-emerald-500/30 border border-gray-200 shrink-0"
-                  onError={(e) => {
-                    (e.target as HTMLElement).setAttribute(
-                      'src',
-                      'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'
-                    );
-                  }}
-                />
+              <div className="flex items-start gap-4 mb-3">
+                {/* Avatar Preview with Click-to-Upload Camera Badge */}
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  className="relative group cursor-pointer shrink-0"
+                  title="Click to upload custom avatar image"
+                >
+                  <img
+                    src={formData.avatarUrl}
+                    alt={formData.name}
+                    className="w-16 h-16 rounded-full object-cover ring-2 ring-emerald-500/40 border-2 border-white shadow-sm transition-all group-hover:brightness-90"
+                    onError={(e) => {
+                      (e.target as HTMLElement).setAttribute(
+                        'src',
+                        'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'
+                      );
+                    }}
+                  />
+                  <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center text-white transition-opacity">
+                    <Camera size={16} />
+                    <span className="text-[9px] font-bold uppercase tracking-tight mt-0.5">Upload</span>
+                  </div>
+                </div>
                 
                 <div className="flex-1">
-                  <div className="text-xs text-gray-500 mb-2">Choose preset or enter custom image URL:</div>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <span className="text-xs text-gray-600 font-medium">Select avatar preset or upload custom photo:</span>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* Primary Upload Button */}
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-full text-xs font-semibold transition-all shadow-2xs hover:border-emerald-300 active:scale-95"
+                    >
+                      <Upload size={13} className="text-emerald-600" />
+                      <span>Upload Photo</span>
+                    </button>
+
+                    <div className="h-4 w-px bg-gray-200 mx-0.5" />
+
+                    {/* Presets */}
                     {AVATAR_PRESETS.map((preset) => (
                       <button
                         key={preset.url}
                         type="button"
                         onClick={() => setFormData({ ...formData, avatarUrl: preset.url })}
-                        className={`w-8 h-8 rounded-full overflow-hidden border-2 transition-transform ${
+                        className={`w-7 h-7 rounded-full overflow-hidden border-2 transition-transform ${
                           formData.avatarUrl === preset.url
                             ? 'border-emerald-600 scale-110 shadow-xs'
-                            : 'border-transparent hover:scale-105'
+                            : 'border-transparent hover:scale-105 opacity-80 hover:opacity-100'
                         }`}
                         title={preset.name}
                       >
                         <img src={preset.url} alt={preset.name} className="w-full h-full object-cover" />
                       </button>
                     ))}
+
                     <button
                       type="button"
                       onClick={() => setShowCustomAvatarInput(!showCustomAvatarInput)}
-                      className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 border border-gray-300 flex items-center justify-center text-gray-600 text-xs font-semibold"
-                      title="Custom Image URL"
+                      className={`w-7 h-7 rounded-full border flex items-center justify-center text-xs font-semibold transition-colors ${
+                        showCustomAvatarInput
+                          ? 'bg-emerald-600 text-white border-emerald-600'
+                          : 'bg-gray-100 hover:bg-gray-200 border-gray-300 text-gray-600'
+                      }`}
+                      title="Enter Image Web URL"
                     >
-                      <ImageIcon size={14} />
+                      <ImageIcon size={13} />
                     </button>
                   </div>
+
+                  <p className="text-[11px] text-gray-400 mt-2">
+                    Supports JPG, PNG, WebP or SVG up to 5MB.
+                  </p>
                 </div>
               </div>
 
+              {uploadError && (
+                <div className="p-2 mb-2 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg">
+                  {uploadError}
+                </div>
+              )}
+
               {showCustomAvatarInput && (
-                <input
-                  type="url"
-                  placeholder="https://example.com/my-photo.jpg"
-                  value={formData.avatarUrl}
-                  onChange={(e) => setFormData({ ...formData, avatarUrl: e.target.value })}
-                  className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-                />
+                <div className="mt-2">
+                  <input
+                    type="url"
+                    placeholder="Paste image web URL (e.g. https://example.com/avatar.jpg)"
+                    value={formData.avatarUrl}
+                    onChange={(e) => setFormData({ ...formData, avatarUrl: e.target.value })}
+                    className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                  />
+                </div>
               )}
             </div>
 
